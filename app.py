@@ -61,7 +61,7 @@ def makeWebhookResult(req):
     monitor = scrapMonitor()
 
     tipocambio = {'BCV': {'precio':dolar,'fecha':fecha}, 'negro':{'precio':monitor, 'fecha':fecha +' horas'} }
-    speech = "El dolar " + zone[0] + " es " + str(tipocambio[llave]['precio']) + " para la fecha del " + str(tipocambio[llave]['fecha'] + ' 🤑')
+    speech = "El dolar " + zone[0] + " es " + *str(tipocambio[llave]['precio'])* + " para la fecha del " + str(tipocambio[llave]['fecha'] + ' 🤑')
     print("Response:")
     print(speech)
     return {'fulfillmentText': speech}
