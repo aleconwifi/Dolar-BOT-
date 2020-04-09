@@ -18,7 +18,7 @@ cron = Scheduler(daemon=True)
 # Explicitly kick off the background thread
 cron.start()
 
-@cron.interval_schedule(hours=5)
+@cron.interval_schedule(hours=2)
 def scrapBCV():
     url = "http://www.bcv.org.ve"
     page = urllib.request.urlopen(url)
@@ -37,7 +37,7 @@ def scrapBCV():
         json.dump(bcv, json_file)
 
 
-@cron.interval_schedule(minutes=30)
+@cron.interval_schedule(minutes=20)
 def scrapMonitor():
     url2 = "https://monitordolarvenezuela.com/monitor-dolar-hoy"
     response = requests.get(url2)
@@ -69,7 +69,7 @@ def calcularpuntos(monitor, dolarBCV):
 
 
 
-@cron.interval_schedule(minutes=30)
+@cron.interval_schedule(minutes=20)
 def promedios():
     url = "http://www.monitordolarvenezuela.com"
     response = requests.get(url)
@@ -94,7 +94,7 @@ def promedios():
     with open('promedios.json', 'w') as json_file:
         json.dump(dolarpromedios, json_file) 
 
-@cron.interval_schedule(hours=3)
+@cron.interval_schedule(hours=2)
 def hoy():
     url = "http://www.monitordolarvenezuela.com"
     response = requests.get(url)
