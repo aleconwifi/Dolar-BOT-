@@ -3,6 +3,9 @@ import urllib.request
 import requests
 import re
 import pandas as pd
+import json
+from apscheduler.scheduler import Scheduler
+from datetime import datetime
 
 
 
@@ -60,6 +63,9 @@ def scrapMonitor():
     nombre = hoy.find("h2", {"class": "text-center"}).get_text()
     return nombre
 
+cron = Scheduler(daemon=True)
+cron.start()
+@cron.interval_schedule(seconds=10)
 def calcularpuntos(monitor, dolarBCV):
     #float del monitor
     monitorsep = monitor.split()
@@ -92,6 +98,9 @@ def DolaresaBolivares(monitor, dolarBCV):
     mult = query*new_negro
 
 
+
+
+
 if __name__ == '__main__':
     """    listaa =[]
     titulos, numeros, porcentaje = promedios()
@@ -103,6 +112,27 @@ if __name__ == '__main__':
         print(hola)  """
     monitor = scrapMonitor()
     dolarBCV, fecha = scrapBCV()
-    calcularpuntos(monitor, dolarBCV)
+    #calcularpuntos(monitor, dolarBCV)
 
+    bcv = {
+    'dolarBCV': dolarBCV,
+    'fecha': fecha
+    }
+
+    negro = {
+    'dolarBCV': monitor,
+    'fecha': fecha
+    }
+
+    with open('bcv.json', 'w') as json_file:
+        json.dump(bcv, json_file)
+
+
+    
+    with open('negro.json') as f:
+        data = json.load(f)
+        
+    print("la data del negro es: ", data['dolarBCV'])
+
+    
 

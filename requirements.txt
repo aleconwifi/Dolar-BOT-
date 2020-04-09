@@ -10,3 +10,4 @@ bs4==0.0.1
 beautifulsoup4==4.8.2
 urllib3==1.25.8
 pandas==1.0.3
+apscheduler==2.1.2

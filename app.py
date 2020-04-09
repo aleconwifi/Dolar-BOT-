@@ -1,5 +1,6 @@
 #Librerias API
 from flask import Flask, jsonify, request, make_response
+from apscheduler.scheduler import Scheduler
 import urllib
 import json
 import os
@@ -9,12 +10,15 @@ import urllib.request
 import re
 import requests
 import pandas as pd
+import atexit
 
 app = Flask(__name__)
 
+cron = Scheduler(daemon=True)
+# Explicitly kick off the background thread
+cron.start()
 
-
-
+@cron.interval_schedule(hours=5)
 def scrapBCV():
     url = "http://www.bcv.org.ve"
     page = urllib.request.urlopen(url)
@@ -25,8 +29,15 @@ def scrapBCV():
     fecha = content_date.text
     dolar = content_lis.div.strong.text.strip()
     imp = print('Dolar BCV : {} para la fecha : {}'.format(dolar, fecha))
-    return dolar, fecha
+    bcv = {
+    'dolarBCV': dolar,
+    'fecha': fecha
+    }
+    with open('bcv.json', 'w') as json_file:
+        json.dump(bcv, json_file)
 
+
+@cron.interval_schedule(minutes=30)
 def scrapMonitor():
     url2 = "https://monitordolarvenezuela.com/monitor-dolar-hoy"
     response = requests.get(url2)
@@ -34,7 +45,12 @@ def scrapMonitor():
     soup = BeautifulSoup(page, 'html.parser')
     hoy = soup.find("div", {"itemprop": "articleBody"})
     nombre = hoy.find("h2", {"class": "text-center"}).get_text()
-    return nombre
+    negro = {
+    'dolarnegro': nombre
+    }
+    print('Dolar NEGRO',nombre )
+    with open('negro.json', 'w') as json_file:
+        json.dump(negro, json_file)
 
 
 def calcularpuntos(monitor, dolarBCV):
@@ -53,7 +69,7 @@ def calcularpuntos(monitor, dolarBCV):
 
 
 
-
+@cron.interval_schedule(minutes=30)
 def promedios():
     url = "http://www.monitordolarvenezuela.com"
     response = requests.get(url)
@@ -67,9 +83,18 @@ def promedios():
     nombres_numeros = [item.find("div", {"class": "col-6 col-lg-4"}).get_text().replace("www.monitordolarvenezuela.com", "", 1) for item in items]
     nombres_porcentajes = [item.find("div", {"class": "col-4 col-lg-2 text-center"}).get_text() for item in items]
 
-    return nombres_titulos, nombres_numeros, nombres_porcentajes
+    listaa =[]
+    for i in range(len(nombres_titulos)):
+        listaa.append("- En *{}*: {} Bs, cambió {}\n".format(nombres_titulos[i],nombres_numeros[i], nombres_porcentajes[i] ))
+    listToStr = ' '.join([str(elem) for elem in listaa])
+    dolarpromedios = {
+    'dolarpromedios': listToStr
+    }
+    print('Dolar Promedios',listToStr )
+    with open('promedios.json', 'w') as json_file:
+        json.dump(dolarpromedios, json_file) 
 
-
+@cron.interval_schedule(hours=3)
 def hoy():
     url = "http://www.monitordolarvenezuela.com"
     response = requests.get(url)
@@ -80,10 +105,21 @@ def hoy():
     items2 = dolars2.find_all("div", {"class": "col-6 col-md-3 col-lg-3 hoy text-center"})
     hoy = [item.text for item in items2]
     limpio = []
+    listaa = []
     for line in hoy:
         limpio.append('- ' + line[0:7] + ':' + ' ' + line[7:])
-    return limpio
+    for i in range(len(limpio)):
+        listaa.append("{}\n".format(limpio[i]))
+        listToStr = ' '.join([str(elem) for elem in listaa]) 
+    listToStr = "*Resumen del dólar negro de hoy* \n" + listToStr
+    dolarhoy = {
+    'dolarhoy': listToStr
+    }
+    print('Dolar Hoy',listToStr )
+    with open('hoy.json', 'w') as json_file:
+        json.dump(dolarhoy, json_file) 
 
+@cron.interval_schedule(hours=5)
 def ayer():
     url = "http://www.monitordolarvenezuela.com"
     response = requests.get(url)
@@ -93,9 +129,19 @@ def ayer():
     ayer = soup.find_all("div", {"class": "col-6 col-md-3 col-lg-3 ayer text-center"})
     ayerr = [item.text for item in ayer]
     limpio = []
+    listaa = []
     for line in ayerr:
         limpio.append('- ' + line[0:7] + ':' + ' ' + line[7:])
-    return limpio
+    for i in range(len(limpio)):
+        listaa.append("{}\n".format(limpio[i]))
+        listToStr = ' '.join([str(elem) for elem in listaa]) 
+    listToStr = "*Resumen del dólar negro de ayer* \n" + listToStr
+    dolarayer = {
+    'dolarayer': listToStr
+    }
+    print('Dolar Ayer',listToStr )
+    with open('ayer.json', 'w') as json_file:
+        json.dump(dolarayer, json_file)
 
 
 @app.route('/webhook', methods=['POST'])
@@ -116,9 +162,16 @@ def makeWebhookResult(req):
     if req.get("queryResult").get("action") == "input.bcv":
         result = req.get("queryResult")
         #pregunta = result.get("queryText")
-        dolarBCV, fecha = scrapBCV()
-        monitor = scrapMonitor()
+        #dolarBCV, fecha = scrapBCV()   
+        with open('bcv.json') as f:
+            data = json.load(f)
+        with open('negro.json') as f:
+            datanegro = json.load(f)
+        dolarBCV = data['dolarBCV']
+        fecha = data['fecha']
+        monitor = datanegro['dolarnegro']
         new_negro, new_dolarBCV, puntos = calcularpuntos(monitor, dolarBCV)
+
         if new_dolarBCV > new_negro:
             speech = ("El dolar BCV es de Bs {} para la fecha del {} 🤑.\n Está {} puntos por arriba del negro.\n El dolar BCV se actualiza diariamente.\n".format(dolarBCV,fecha, puntos))
         else:
@@ -126,11 +179,18 @@ def makeWebhookResult(req):
         print("Response:")
         print(speech)
         return {'fulfillmentText': speech}
-    if req.get("queryResult").get("action") == "input.negro":
+    elif req.get("queryResult").get("action") == "input.negro":
         result = req.get("queryResult")
-        pregunta = result.get("queryText")
-        monitor = scrapMonitor()
-        dolarBCV, fecha = scrapBCV()
+        #pregunta = result.get("queryText")
+        with open('bcv.json') as f:
+            data = json.load(f)
+        
+        with open('negro.json') as f:
+            datanegro = json.load(f)
+        
+        dolarBCV = data['dolarBCV']
+        fecha = data['fecha']
+        monitor = datanegro['dolarnegro']
         new_negro, new_dolarBCV, puntos = calcularpuntos(monitor, dolarBCV)
         if new_negro > new_dolarBCV:
             speech = ("El dolar Negro es de {} para la fecha del {} 🤑.\n Está {} puntos por arriba del BCV.\n El dolar negro se actualiza cada 30 minutos.\n".format(monitor,fecha, puntos))
@@ -140,49 +200,36 @@ def makeWebhookResult(req):
         print("Response:")
         print(speech)
         return {'fulfillmentText': speech}
-    if req.get("queryResult").get("action") == "input.promedios":
-        result = req.get("queryResult")
-        pregunta = result.get("queryText")
-        listaa =[]
-        titulos, numeros, porcentaje = promedios()
-        for i in range(len(titulos)):
-            listaa.append("- En *{}*: {} Bs, cambió {}\n".format(titulos[i],numeros[i], porcentaje[i] ))
-        listToStr = ' '.join([str(elem) for elem in listaa]) 
+    elif req.get("queryResult").get("action") == "input.promedios":
         print("Response:")
-        print(listToStr)
-        return {'fulfillmentText': listToStr}
-    if req.get("queryResult").get("action") == "input.hoy":
-        result = req.get("queryResult")
-        pregunta = result.get("queryText")
-        listaa =[]
-        lista = hoy()
-        for i in range(len(lista)):
-            listaa.append("{}\n".format(lista[i]))
-        listToStr = ' '.join([str(elem) for elem in listaa]) 
-        listToStr = "*Resumen del dólar negro de hoy* \n" + listToStr 
-        print("Response:")
-        print(listToStr)
-        return {'fulfillmentText': listToStr}
-    if req.get("queryResult").get("action") == "input.ayer":
-        result = req.get("queryResult")
-        pregunta = result.get("queryText")
-        listaa =[]
-        lista = ayer()
-        for i in range(len(lista)):
-            listaa.append("{}\n".format(lista[i]))
-        listToStr = ' '.join([str(elem) for elem in listaa]) 
-        listToStr = "*Resumen del dólar negro de ayer* \n" + listToStr 
-        print("Response:")
-        print(listToStr)
-        return {'fulfillmentText': listToStr}
-    if req.get("queryResult").get("action") == "input.DolaBs":
+        with open('promedios.json') as f:
+            datapromedios = json.load(f)
+        promedios = datapromedios['dolarpromedios']
+        print(promedios)
+        return {'fulfillmentText': promedios}
+    elif req.get("queryResult").get("action") == "input.hoy":
+        with open('hoy.json') as f:
+            datahoy = json.load(f)
+        hoy = datahoy['dolarhoy']
+        return {'fulfillmentText': hoy}
+    elif req.get("queryResult").get("action") == "input.ayer":
+        with open('ayer.json') as f:
+            dataayer = json.load(f)
+        ayer = dataayer['dolarayer']
+        return {'fulfillmentText': ayer}
+    elif req.get("queryResult").get("action") == "input.DolaBs":
         result = req.get("queryResult")
         pregunta = result.get("queryText")
         parameters = result.get("parameters")
         tipodolar  = parameters.get("tipodolar")
         number  = parameters.get("number")
-        dolarBCV, fecha = scrapBCV()
-        monitor = scrapMonitor()
+        with open('bcv.json') as f:
+            data = json.load(f)
+        with open('negro.json') as f:
+            datanegro = json.load(f)
+        dolarBCV = data['dolarBCV']
+        fecha = data['fecha']
+        monitor = datanegro['dolarnegro']
         new_negro, new_dolarBCV, puntos = calcularpuntos(monitor, dolarBCV)
         bcv_mult = round(new_dolarBCV*number)
         negro_mult = round(new_negro*number)
@@ -196,15 +243,20 @@ def makeWebhookResult(req):
         print("Response:")
         print(speech)
         return {'fulfillmentText': speech}
-    if req.get("queryResult").get("action") == "DolaresBolivaresRsp.DolaresBolivaresRsp-custom":
+    elif req.get("queryResult").get("action") == "DolaresBolivaresRsp.DolaresBolivaresRsp-custom":
         result = req.get("queryResult")
         pregunta = result.get("queryText")
         parameters = result.get("parameters")
         tipodolar  = parameters.get("tipodolar")
         outputContexts = result.get("outputContexts")
         contexto = outputContexts[0]
-        dolarBCV, fecha = scrapBCV()
-        monitor = scrapMonitor()
+        with open('bcv.json') as f:
+            data = json.load(f)
+        with open('negro.json') as f:
+            datanegro = json.load(f)
+        dolarBCV = data['dolarBCV']
+        fecha = data['fecha']
+        monitor = datanegro['dolarnegro']
         new_negro, new_dolarBCV, puntos = calcularpuntos(monitor, dolarBCV)
         bcv_mult = round(new_dolarBCV*float(contexto['parameters']['number']))
         negro_mult = round(new_negro*float(contexto['parameters']['number']))
@@ -220,7 +272,7 @@ def makeWebhookResult(req):
         print("Response:")
         print(speech)
         return {'fulfillmentText': speech}
-    if req.get("queryResult").get("action") == "input.BsaDolares":
+    elif req.get("queryResult").get("action") == "input.BsaDolares":
         result = req.get("queryResult")
         pregunta = result.get("queryText")
         parameters = result.get("parameters")
@@ -234,9 +286,13 @@ def makeWebhookResult(req):
             number = number / 10
         print("number despues del replace", number)
         print("number despues del replace haciendole float", float(number))
-
-        dolarBCV, fecha = scrapBCV()
-        monitor = scrapMonitor()
+        with open('bcv.json') as f:
+            data = json.load(f)
+        with open('negro.json') as f:
+            datanegro = json.load(f)
+        dolarBCV = data['dolarBCV']
+        fecha = data['fecha']
+        monitor = datanegro['dolarnegro']
         new_negro, new_dolarBCV, puntos = calcularpuntos(monitor, dolarBCV)
         bcv_mult = float(number) / new_dolarBCV
         negro_mult = float(number) / new_negro
@@ -255,15 +311,20 @@ def makeWebhookResult(req):
         print("Response:")
         print(speech)
         return {'fulfillmentText': speech}
-    if req.get("queryResult").get("action") == "BolivaresaDolaresRsp.BolivaresaDolaresRsp-custom":
+    elif req.get("queryResult").get("action") == "BolivaresaDolaresRsp.BolivaresaDolaresRsp-custom":
         result = req.get("queryResult")
         pregunta = result.get("queryText")
         parameters = result.get("parameters")
         tipodolar  = parameters.get("tipodolar")
         outputContexts = result.get("outputContexts")
         contexto = outputContexts[0]
-        dolarBCV, fecha = scrapBCV()
-        monitor = scrapMonitor()
+        with open('bcv.json') as f:
+            data = json.load(f)
+        with open('negro.json') as f:
+            datanegro = json.load(f)
+        dolarBCV = data['dolarBCV']
+        fecha = data['fecha']
+        monitor = datanegro['dolarnegro']
         new_negro, new_dolarBCV, puntos = calcularpuntos(monitor, dolarBCV)
         bcv_mult =  float(contexto['parameters']['number']) / new_dolarBCV
         negro_mult = float(contexto['parameters']['number']) / new_negro
@@ -299,6 +360,9 @@ def makeWebhookResult(req):
     print(speech)
     return {'fulfillmentText': speech}
 """
+
+
+atexit.register(lambda: cron.shutdown(wait=False))
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=80, debug=True)
